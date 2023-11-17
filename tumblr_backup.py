@@ -99,13 +99,6 @@ else:
 # Imported later if needed
 ytdl_module: Optional[ModuleType] = None
 
-# Format of displayed tags
-TAG_FMT = '#{}'
-
-# Format of tag link URLs; set to None to suppress the links.
-# Named placeholders that will be replaced: domain, tag
-TAGLINK_FMT = 'https://{domain}/tagged/{tag}'
-
 # variable directory names, will be set in TumblrBackup.backup()
 save_folder = ''
 media_folder = ''
