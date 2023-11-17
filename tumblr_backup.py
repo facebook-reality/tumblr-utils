@@ -130,30 +130,14 @@ EXIT_NOPOSTS    = 5
 save_folder = ''
 media_folder = ''
 
-# constant names
-root_folder = os.getcwd()
-post_dir = 'posts'
-json_dir = 'json'
-media_dir = 'media'
-archive_dir = 'archive'
-theme_dir = 'theme'
-save_dir = '..'
-backup_css = 'backup.css'
-custom_css = 'custom.css'
-avatar_base = 'avatar'
-dir_index = 'index.html'
-tag_index_dir = 'tags'
+# constant? names
+post_dir = 'posts'  # Not actually a constant, see bloxsom stuff
+media_dir = 'media'  # Not a const
+save_dir = '..'  # Not a const
 
 blog_name = ''
 post_ext = '.html'
 have_custom_css = False
-
-POST_TYPES = ('text', 'quote', 'link', 'answer', 'video', 'audio', 'photo', 'chat')
-TYPE_ANY = 'any'
-TAG_ANY = '__all__'
-
-MAX_POSTS = 50
-REM_POST_INC = 10
 
 # Always retry on 503 or 504, but never on connect or 429, the latter handled specially
 HTTP_RETRY = Retry(3, connect=False, status_forcelist=frozenset((503, 504)))
@@ -167,7 +151,6 @@ try:
     locale.setlocale(locale.LC_TIME, '')
 except locale.Error:
     pass
-FILE_ENCODING = 'utf-8'
 
 PREV_MUST_MATCH_OPTIONS = ('likes', 'blosxom')
 MEDIA_PATH_OPTIONS = ('dirs', 'hostdirs', 'image_names')
@@ -634,7 +617,7 @@ def add_exif(image_name, tags):
 
 
 def save_style():
-    with open_text(backup_css) as css:
+    with open_text(BACKUP_CSS_FILENAME) as css:
         css.write('''\
 @import url("override.css");
 
@@ -666,21 +649,21 @@ def find_post_files():
         yield from find_files(path, lambda n: n.endswith(post_ext))
         return
 
-    indexes = (join(e, dir_index) for e in find_files(path))
+    indexes = (join(e, DIR_INDEX_FILENAME) for e in find_files(path))
     yield from filter(os.path.exists, indexes)
 
 
 def match_avatar(name):
-    return name.startswith(avatar_base + '.')
+    return name.startswith(AVATAR_BASE + '.')
 
 
 def get_avatar(prev_archive):
     if prev_archive is not None:
         # Copy old avatar, if present
-        avatar_matches = find_files(join(prev_archive, theme_dir), match_avatar)
+        avatar_matches = find_files(join(prev_archive, THEME_DIR), match_avatar)
         src = next(avatar_matches, None)
         if src is not None:
-            path_parts = (theme_dir, split(src)[-1])
+            path_parts = (THEME_DIR, split(src)[-1])
             cpy_res = maybe_copy_media(prev_archive, path_parts)
             if cpy_res:
                 return  # We got the avatar
@@ -688,10 +671,10 @@ def get_avatar(prev_archive):
         return  # Don't download the avatar
 
     url = 'https://api.tumblr.com/v2/blog/%s/avatar' % blog_name
-    avatar_dest = avatar_fpath = open_file(lambda f: f, (theme_dir, avatar_base))
+    avatar_dest = avatar_fpath = open_file(lambda f: f, (THEME_DIR, AVATAR_BASE))
 
     # Remove old avatars
-    avatar_matches = find_files(theme_dir, match_avatar)
+    avatar_matches = find_files(THEME_DIR, match_avatar)
     if next(avatar_matches, None) is not None:
         return  # Do not clobber
 
@@ -716,7 +699,7 @@ def get_style(prev_archive):
     See https://groups.google.com/d/msg/tumblr-api/f-rRH6gOb6w/sAXZIeYx5AUJ"""
     if prev_archive is not None:
         # Copy old style, if present
-        path_parts = (theme_dir, 'style.css')
+        path_parts = (THEME_DIR, 'style.css')
         cpy_res = maybe_copy_media(prev_archive, path_parts)
         if cpy_res:
             return  # We got the style
@@ -735,7 +718,7 @@ def get_style(prev_archive):
         if '\n' not in css:
             continue
         css = css.replace('\r', '').replace('\n    ', '\n')
-        with open_text(theme_dir, 'style.css') as f:
+        with open_text(THEME_DIR, 'style.css') as f:
             f.write(css + '\n')
         return
 
@@ -820,11 +803,11 @@ class Index:
         )
         subtitle = self.blog.title if title else self.blog.subtitle
         title = title or self.blog.title
-        with open_text(index_dir, dir_index) as idx:
+        with open_text(index_dir, DIR_INDEX_FILENAME) as idx:
             idx.write(self.blog.header(title, self.body_class, subtitle, avatar=True))
             if options.tag_index and self.body_class == 'index':
                 idx.write('<p><a href={}>Tag index</a></p>\n'.format(
-                    urlpathjoin(tag_index_dir, dir_index)
+                    urlpathjoin(TAG_INDEX_DIR, DIR_INDEX_FILENAME)
                 ))
             for year in sorted(self.index.keys(), reverse=options.reverse_index):
                 self.save_year(idx, archives, index_dir, year)
@@ -838,7 +821,7 @@ class Index:
             tm = time.localtime(time.mktime((year, month, 3, 0, 0, 0, 0, 0, -1)))
             month_name = self.save_month(archives, index_dir, year, month, tm)
             idx.write('    <li><a href={} title="{} post(s)">{}</a></li>\n'.format(
-                urlpathjoin(archive_dir, month_name), len(self.index[year][month]), strftime('%B', tm)
+                urlpathjoin(ARCHIVE_DIR, month_name), len(self.index[year][month]), strftime('%B', tm)
             ))
         idx.write('</ul>\n\n')
 
@@ -869,11 +852,11 @@ class Index:
             suffix = '/' if options.dirs else post_ext
             file_name = FILE_FMT % (year, month, page, suffix)
             if options.dirs:
-                base = urlpathjoin(save_dir, archive_dir)
-                arch = open_text(index_dir, archive_dir, file_name, dir_index)
+                base = urlpathjoin(save_dir, ARCHIVE_DIR)
+                arch = open_text(index_dir, ARCHIVE_DIR, file_name, DIR_INDEX_FILENAME)
             else:
                 base = ''
-                arch = open_text(index_dir, archive_dir, file_name)
+                arch = open_text(index_dir, ARCHIVE_DIR, file_name)
 
             if page > 1:
                 pp = FILE_FMT % (year, month, page - 1, suffix)
@@ -927,18 +910,18 @@ class Indices:
     def save_tag_index(self):
         global save_dir
         save_dir = '../../..'
-        mkdir(path_to(tag_index_dir))
+        mkdir(path_to(TAG_INDEX_DIR))
         tag_index = [self.blog.header('Tag index', 'tag-index', self.blog.title, avatar=True), '<ul>']
         for tag, index in sorted(self.tags.items(), key=lambda kv: kv[1].name):
             digest = hashlib.md5(to_bytes(tag)).hexdigest()
-            index.save_index(tag_index_dir + os.sep + digest,
+            index.save_index(TAG_INDEX_DIR + os.sep + digest,
                 "Tag ‛%s’" % index.name
             )
             tag_index.append('    <li><a href={}>{}</a></li>'.format(
-                urlpathjoin(digest, dir_index), escape(index.name)
+                urlpathjoin(digest, DIR_INDEX_FILENAME), escape(index.name)
             ))
         tag_index.extend(['</ul>', ''])
-        with open_text(tag_index_dir, dir_index) as f:
+        with open_text(TAG_INDEX_DIR, DIR_INDEX_FILENAME) as f:
             f.write('\n'.join(tag_index))
 
 
@@ -967,7 +950,7 @@ class TumblrBackup:
         root_rel = {
             'index': '', 'tag-index': '..', 'tag-archive': '../..'
         }.get(body_class, save_dir)
-        css_rel = urlpathjoin(root_rel, custom_css if have_custom_css else backup_css)
+        css_rel = urlpathjoin(root_rel, CUSTOM_CSS_FILENAME if have_custom_css else BACKUP_CSS_FILENAME)
         if body_class:
             body_class = ' class=' + body_class
         h = '''<!DOCTYPE html>
@@ -981,10 +964,10 @@ class TumblrBackup:
 <header>
 ''' % (FILE_ENCODING, self.title, css_rel, body_class)
         if avatar:
-            avatar_matches = find_files(path_to(theme_dir), match_avatar)
+            avatar_matches = find_files(path_to(THEME_DIR), match_avatar)
             avatar_path = next(avatar_matches, None)
             if avatar_path is not None:
-                h += '<img src={} alt=Avatar>\n'.format(urlpathjoin(root_rel, theme_dir, split(avatar_path)[1]))
+                h += '<img src={} alt=Avatar>\n'.format(urlpathjoin(root_rel, THEME_DIR, split(avatar_path)[1]))
         if title:
             h += '<h1>%s</h1>\n' % title
         if subtitle:
@@ -995,7 +978,7 @@ class TumblrBackup:
     @staticmethod
     def footer(base, previous_page, next_page):
         f = '<footer><nav>'
-        f += '<a href={} rel=index>Index</a>\n'.format(urlpathjoin(save_dir, dir_index))
+        f += '<a href={} rel=index>Index</a>\n'.format(urlpathjoin(save_dir, DIR_INDEX_FILENAME))
         if previous_page:
             f += '| <a href={} rel=prev>Previous</a>\n'.format(urlpathjoin(base, previous_page))
         if next_page:
@@ -1142,18 +1125,18 @@ class TumblrBackup:
         if options.json_info:
             pass  # Not going to save anything
         elif options.blosxom:
-            save_folder = root_folder
+            save_folder = ROOT_FOLDER
             post_ext = '.txt'
             post_dir = os.curdir
             post_class: Type[TumblrPost] = BlosxomPost
         else:
-            save_folder = join(root_folder, options.outdir or account)
+            save_folder = join(ROOT_FOLDER, options.outdir or account)
             media_folder = path_to(media_dir)
             if options.dirs:
                 post_ext = ''
                 save_dir = '../..'
             post_class = TumblrPost
-            have_custom_css = os.access(path_to(custom_css), os.R_OK)
+            have_custom_css = os.access(path_to(CUSTOM_CSS_FILENAME), os.R_OK)
 
         self.post_count = 0
         self.filter_skipped = 0
@@ -1952,7 +1935,7 @@ class TumblrPost:
     def save_post(self):
         """saves this post locally"""
         if options.json and not options.reuse_json:
-            with open_text(json_dir, self.ident + '.json') as f:
+            with open_text(JSON_DIR, self.ident + '.json') as f:
                 f.write(self.get_json_content())
         path_parts = self.get_path()
         try:
@@ -2003,7 +1986,7 @@ class LocalPost:
             if footer_pos > 0:
                 self.tags = re.findall(r'<a.+?/tagged/(.+?)>#(.+?)</a>', post[footer_pos:])
         parts = post_file.split(os.sep)
-        if parts[-1] == dir_index:  # .../<post_id>/index.html
+        if parts[-1] == DIR_INDEX_FILENAME:  # .../<post_id>/index.html
             self.file_name = join(*parts[-2:])
             self.ident = parts[-2]
         else:
