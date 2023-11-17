@@ -14,7 +14,7 @@ from enum import Enum
 from functools import total_ordering
 from http.cookiejar import MozillaCookieJar
 from importlib.machinery import PathFinder
-from typing import TYPE_CHECKING, Any, Deque, Dict, Generic, Optional, Tuple, TypeVar
+from typing import TYPE_CHECKING, Any, Deque, Dict, Optional, Tuple
 
 if sys.platform == 'darwin':
     import fcntl
@@ -54,32 +54,6 @@ def to_bytes(string, encoding='utf-8', errors='strict'):
     if isinstance(string, bytes):
         return string
     return string.encode(encoding, errors)
-
-
-class FakeGenericMeta(type):
-    def __getitem__(cls, item):
-        return cls
-
-
-if TYPE_CHECKING:
-    T = TypeVar('T')
-
-    class GenericQueue(queue.Queue[T], Generic[T]):
-        pass
-else:
-    T = None
-
-    class GenericQueue(queue.Queue, metaclass=FakeGenericMeta):
-        pass
-
-
-class LockedQueue(GenericQueue[T]):
-    def __init__(self, lock, maxsize=0):
-        super().__init__(maxsize)
-        self.mutex = lock
-        self.not_empty = threading.Condition(lock)
-        self.not_full = threading.Condition(lock)
-        self.all_tasks_done = threading.Condition(lock)
 
 
 class ConnectionFile:

@@ -3,7 +3,6 @@
 
 # standard Python library imports
 import calendar
-import errno
 import hashlib
 import http.client
 import itertools
@@ -30,7 +29,7 @@ from typing import (TYPE_CHECKING, Any, Callable, DefaultDict, Dict, Iterable, I
 from urllib.parse import quote, urlencode, urlparse
 from xml.sax.saxutils import escape
 
-from util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LockedQueue, LogLevel, MultiCondition, copyfile,
+from util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LogLevel, MultiCondition, copyfile,
                   enospc, fdatasync, fsync, have_module, is_dns_working, make_requests_session, no_internet, opendir,
                   to_bytes)
 from wget import HTTPError, HTTP_TIMEOUT, Retry, WGError, WgetRetrieveWrapper, setup_wget, touch, urlopen
@@ -1939,93 +1938,6 @@ class LocalPost:
             deep_media = urlpathjoin(save_dir, media_dir)
             post = post.replace(shallow_media, deep_media)
         return post
-
-
-class ThreadPool:
-    queue: LockedQueue[Callable[[], None]]
-
-    def __init__(self, max_queue=1000):
-        self.queue = LockedQueue(main_thread_lock, max_queue)
-        self.quit = threading.Condition(main_thread_lock)
-        self.quit_flag = False
-        self.abort_flag = False
-        self.errors = False
-        self.threads = [threading.Thread(target=self.handler) for _ in range(options.threads)]
-        for t in self.threads:
-            t.start()
-
-    def add_work(self, *args, **kwargs):
-        self.queue.put(*args, **kwargs)
-
-    def wait(self):
-        with multicond:
-            self._print_remaining(self.queue.qsize())
-            self.quit_flag = True
-            self.quit.notify_all()
-            while self.queue.unfinished_tasks:
-                no_internet.check(release=True)
-                enospc.check(release=True)
-                # All conditions false, wait for a change
-                multicond.wait((self.queue.all_tasks_done, no_internet.cond, enospc.cond))
-
-    def cancel(self):
-        with main_thread_lock:
-            self.abort_flag = True
-            self.quit.notify_all()
-            no_internet.destroy()
-            enospc.destroy()
-
-        for i, t in enumerate(self.threads, start=1):
-            logger.status('Stopping threads {}{}\r'.format(' ' * i, '.' * (len(self.threads) - i)))
-            t.join()
-
-        logger.info('Backup canceled.\n')
-
-        with main_thread_lock:
-            self.queue.queue.clear()
-            self.queue.all_tasks_done.notify_all()
-
-    def handler(self):
-        def wait_for_work():
-            while not self.abort_flag:
-                if self.queue.qsize():
-                    return True
-                elif self.quit_flag:
-                    break
-                # All conditions false, wait for a change
-                multicond.wait((self.queue.not_empty, self.quit))
-            return False
-
-        while True:
-            with multicond:
-                if not wait_for_work():
-                    break
-                work = self.queue.get(block=False)
-                qsize = self.queue.qsize()
-                if self.quit_flag and qsize % REM_POST_INC == 0:
-                    self._print_remaining(qsize)
-
-            try:
-                while True:
-                    try:
-                        success = work()
-                        break
-                    except OSError as e:
-                        if e.errno == errno.ENOSPC:
-                            enospc.signal()
-                            continue
-                        raise
-            finally:
-                self.queue.task_done()
-            if not success:
-                self.errors = True
-
-    @staticmethod
-    def _print_remaining(qsize):
-        if qsize:
-            logger.status('{} remaining posts to save\r'.format(qsize))
-        else:
-            logger.status('Waiting for worker threads to finish\r')
 
 
 if __name__ == '__main__':
