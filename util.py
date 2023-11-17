@@ -10,8 +10,6 @@ import sys
 import threading
 import time
 import warnings
-from enum import Enum
-from functools import total_ordering
 from http.cookiejar import MozillaCookieJar
 from importlib.machinery import PathFinder
 from typing import TYPE_CHECKING, Any, Deque, Dict, Optional, Tuple
@@ -259,18 +257,6 @@ def make_requests_session(session_type, retry, timeout, verify, user_agent, cook
 
         session.cookies = cookies  # type: ignore[assignment]
     return session
-
-
-@total_ordering
-class LogLevel(Enum):
-    INFO = 0
-    WARN = 1
-    ERROR = 2
-
-    def __lt__(self, other):
-        if type(self) is type(other):
-            return self.value < other.value
-        return NotImplemented
 
 
 def fsync(fd):
