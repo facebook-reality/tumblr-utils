@@ -1,4 +1,8 @@
+from typing import Any, Dict
+
 import os
+
+JSONDict = Dict[str, Any]
 
 ROOT_FOLDER = os.getcwd()
 
