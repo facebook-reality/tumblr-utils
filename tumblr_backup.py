@@ -137,10 +137,6 @@ BACKUP_CHANGING_OPTIONS = (
 wget_retrieve: Optional[WgetRetrieveWrapper] = None
 main_thread_lock = threading.RLock()
 multicond = MultiCondition(main_thread_lock)
-disable_note_scraper: Set[str] = set()
-disablens_lock = threading.Lock()
-downloading_media: Set[str] = set()
-downloading_media_cond = threading.Condition()
 
 
 def load_bs4(reason):
@@ -170,29 +166,6 @@ def get_api_url(account):
     return 'https://api.tumblr.com/v2/blog/%s/%s' % (
         blog_name, 'likes' if options.likes else 'posts'
     )
-
-
-def add_exif(image_name, tags):
-    assert pyexiv2 is not None
-    try:
-        metadata = pyexiv2.ImageMetadata(image_name)
-        metadata.read()
-    except OSError as e:
-        logger.error('Error reading metadata for image {!r}: {!r}\n'.format(image_name, e))
-        return
-    KW_KEY = 'Iptc.Application2.Keywords'
-    if '-' in options.exif:  # remove all tags
-        if KW_KEY in metadata.iptc_keys:
-            del metadata[KW_KEY]
-    else:  # add tags
-        if KW_KEY in metadata.iptc_keys:
-            tags |= set(metadata[KW_KEY].value)
-        tags = [tag.strip().lower() for tag in tags | options.exif if tag]
-        metadata[KW_KEY] = pyexiv2.IptcTag(KW_KEY, tags)
-    try:
-        metadata.write()
-    except OSError as e:
-        logger.error('Writing metadata failed for tags {} in {!r}: {!r}\n'.format(tags, image_name, e))
 
 
 def save_style():

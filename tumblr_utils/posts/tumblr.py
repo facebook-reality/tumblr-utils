@@ -4,7 +4,9 @@ import json
 import multiprocessing
 import os
 import re
+import threading
 import time
+import traceback
 
 from datetime import datetime
 from posixpath import basename as urlbasename, join as posix_path_join, urlsplitext as posix_split_ext
@@ -12,8 +14,63 @@ from urllib.parse import quote as urlquote, urlparse
 from xml.sax.saxutils import escape as xml_escape
 
 from tumblr_utils.constants import DIR_INDEX_FILENAME, JSON_DIR, JSONDict, TAGLINK_FMT, TAG_FMT
-from tumblr_utils.utils import file_path_to, strftime
+from tumblr_utils.utils import file_path_to, open_text, strftime, to_bytes, ConnectionFile
 from tumblr_utils.utils.wget import touch
+
+try:
+    import pyexiv2
+except ImportError:
+    if not TYPE_CHECKING:
+        pyexiv2 = None
+
+
+# TODO: see if we can make these have a more local scope
+disable_note_scraper: Set[str] = set()
+disablens_lock = threading.Lock()
+downloading_media: Set[str] = set()
+downloading_media_cond = threading.Condition()
+
+
+def import_youtube_dl():
+    global ytdl_module
+    if ytdl_module is not None:
+        return ytdl_module
+
+    try:
+        import yt_dlp
+    except ImportError:
+        pass
+    else:
+        ytdl_module = yt_dlp
+        return ytdl_module
+
+    import youtube_dl
+
+    ytdl_module = youtube_dl
+    return ytdl_module
+
+
+def add_exif(image_name, tags):
+    assert pyexiv2 is not None
+    try:
+        metadata = pyexiv2.ImageMetadata(image_name)
+        metadata.read()
+    except OSError as e:
+        logger.error('Error reading metadata for image {!r}: {!r}\n'.format(image_name, e))
+        return
+    KW_KEY = 'Iptc.Application2.Keywords'
+    if '-' in options.exif:  # remove all tags
+        if KW_KEY in metadata.iptc_keys:
+            del metadata[KW_KEY]
+    else:  # add tags
+        if KW_KEY in metadata.iptc_keys:
+            tags |= set(metadata[KW_KEY].value)
+        tags = [tag.strip().lower() for tag in tags | options.exif if tag]
+        metadata[KW_KEY] = pyexiv2.IptcTag(KW_KEY, tags)
+    try:
+        metadata.write()
+    except OSError as e:
+        logger.error('Writing metadata failed for tags {} in {!r}: {!r}\n'.format(tags, image_name, e))
 
 
 class TumblrPost:
