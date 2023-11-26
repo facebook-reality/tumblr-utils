@@ -83,35 +83,35 @@ class ConfigurationFactory:
         file_config.read('settings.ini')
 
         config_dict = {
-            'api_key': file_config.get('basic', 'api_key'),
-            'blog_names': file_config.get('basic', 'blog_names').split(','),
+            "api_key": file_config.get("basic", "api_key"),
+            "blog_names": file_config.get("basic", "blog_names").split(","),
 
-            'create_tags_index': file_config.getboolean('general', 'create_tags_index'),
-            'max_notes_saved': file_config.getint('general', 'max_notes_saved'),
-            'post_clobber': file_config.getboolean('general', 'post_clobber'),
+            "create_tags_index": file_config.getboolean("general", "create_tags_index"),
+            "max_notes_saved": file_config.getint("general", "max_notes_saved"),
+            "post_clobber": file_config.getboolean("general", "post_clobber"),
 
-            'save_original_posts': file_config.getboolean('filtering', 'save_original_posts'),
-            'save_reblogs': file_config.getboolean('filtering', 'save_reblogs'),
-            'post_tags_whitelist': file_config.get('filtering', 'save_posts_with_tags').split(','),
-            'post_types_whitelist': file_config.get('filtering', 'save_posts_of_types').split(','),
-            'max_posts': file_config.getint('filtering', 'max_posts'),
-            'save_period': file_config.get('filtering', 'save_period'),
+            "save_original_posts": file_config.getboolean("filtering", "save_original_posts"),
+            "save_reblogs": file_config.getboolean("filtering", "save_reblogs"),
+            "post_tags_whitelist": file_config.get("filtering", "save_posts_with_tags").split(","),
+            "post_types_whitelist": file_config.get("filtering", "save_posts_of_types").split(","),
+            "max_posts": file_config.getint("filtering", "max_posts"),
+            "save_period": file_config.get("filtering", "save_period"),
 
-            'save_images': file_config.getboolean('download', 'save_images'),
-            'save_video': file_config.getboolean('download', 'save_video'),
-            'save_audio': file_config.getboolean('download', 'save_audio'),
-            'image_filename_format': file_config.get('download', 'image_filename_format'),
-            'num_threads': file_config.getint('download', 'threads'),
+            "save_images": file_config.getboolean("download", "save_images"),
+            "save_video": file_config.getboolean("download", "save_video"),
+            "save_audio": file_config.getboolean("download", "save_audio"),
+            "image_filename_format": file_config.get("download", "image_filename_format"),
+            "num_threads": file_config.getint("download", "threads"),
 
-            'show_progress': file_config.getboolean('logging', 'show_progress'),
+            "show_progress": file_config.getboolean("logging", "show_progress"),
 
-            'output_path': file_config.get('output', 'path'),
-            'num_posts_per_page': file_config.getint('output', 'posts_per_page'),
+            "output_path": file_config.get("output", "path"),
+            "num_posts_per_page": file_config.getint("output", "posts_per_page"),
 
-            'cookie_file_path': file_config.get('networking', 'cookie_file_path'),
-            'check_dns': file_config.getboolean('networking', 'check_dns'),
-            'ssl_verify': file_config.getboolean('networking', 'ssl_verify'),
-            'user_agent': file_config.get('networking', 'user_agent')
+            "cookie_file_path": file_config.get("networking", "cookie_file_path"),
+            "check_dns": file_config.getboolean("networking", "check_dns"),
+            "ssl_verify": file_config.getboolean("networking", "ssl_verify"),
+            "user_agent": file_config.get("networking", "user_agent")
         }
 
         return Configuration(**config_dict)
