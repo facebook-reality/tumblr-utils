@@ -13,9 +13,9 @@ class VideoType(IntEnum):
 
 
 class ImageFilenameFormat(Enum):
-    ORIGINAL: auto()
-    POST_ID: auto()
-    BLOG_NAME_AND_POST_ID: auto()
+    ORIGINAL: "o"
+    POST_ID: "i"
+    BLOG_NAME_AND_POST_ID: "bi"
 
 
 @dataclass
@@ -62,6 +62,9 @@ class Configuration:
     check_dns: Bool
     ssl_verify: Bool
     user_agent: str
+
+    # Inferable settings
+    save_notes: Bool
 
 
 class ConfigurationFactory:
@@ -111,7 +114,56 @@ class ConfigurationFactory:
             "cookie_file_path": file_config.get("networking", "cookie_file_path"),
             "check_dns": file_config.getboolean("networking", "check_dns"),
             "ssl_verify": file_config.getboolean("networking", "ssl_verify"),
-            "user_agent": file_config.get("networking", "user_agent")
+            "user_agent": file_config.get("networking", "user_agent"),
+
+            "save_notes": file_config.getint("general", "max_notes_saved") > 0
+        }
+
+        return Configuration(**config_dict)
+
+    def _parse_cli_args(self, args: Namespace):
+        config_dict = {
+            "output_path": args.get("outdir", ""),
+            "save_each_post_in_dirs": args.dirs,
+            "show_progress": not args.quiet,
+            "save_likes": args.likes,
+            "save_images": args.save_images,
+            "save_video": VideoType.ALL if args.save_video else VideoType.TUMBLR if args.save_video_tumblr else VideoType.NONE,
+            "save_audio": args.save_audio,
+            "save_notes": args.save_notes,
+            "copy_notes": args.copy_notes,
+            "max_notes_saved": args.notes_limit,
+            "cookie_file_path": args.cookiefile,
+            "save_json": args.json,
+            "save_blosxom": args.blosxom,
+            "reverse_monthly_archives": args.reverse_month,
+            "reverse_index": args.reverse_index,
+            "create_tags_index": args.tag_index,
+            "max_posts": args.count,
+            "skip_first_num_posts": args.skip,
+            "save_period": args.period,
+            "num_posts_per_page": args.posts_per_page,
+            "request": args.request,
+            "post_tags_whitelist": args.tags,
+            "post_types_whitelist": args.type,
+            "jq_filter": args.filter,
+            "image_filename_format": args.image_names,
+            "exif_tags": args.exif,
+            "ssl_verify": not args.no_ssl_verify,
+            "previous_archives": args.prev_archives,
+            "post_clobber": not args.no_post_clobber,
+            "use_server_timestamps": args.use_server_timestamps,
+            "create_hostdirs": args.hostdirs,
+            "user_agent": args.user_agent,
+            "check_dns": not args.skip_dns_check,
+            "num_threads": args.threads,
+            "ignore_diffopt": args.ignore_diffopt,
+            "fetch_missing_files": not args.no_get,
+            "use_internet_archive": args.internet_archive,
+            "create_media_list": args.media_list,
+            "create_post_ids_file": args.id_file,
+            "fetch_blog_info": args.json_info,
+            "blog_names": args.blogs
         }
 
         return Configuration(**config_dict)
