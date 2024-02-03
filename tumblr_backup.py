@@ -33,11 +33,11 @@ from urllib.parse import quote, urlencode, urlparse
 from xml.sax.saxutils import escape
 
 from tumblr_utils import consts
-from util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LockedQueue, LogLevel, MultiCondition, copyfile,
-                  enospc, fdatasync, fsync, have_module, is_dns_working, make_requests_session, no_internet, opendir,
-                  to_bytes)
-from wget import HTTPError, HTTP_TIMEOUT, Retry, WGError, WgetRetrieveWrapper, setup_wget, touch, urlopen
-from is_reblog import post_is_reblog
+from tumblr_utils.is_reblog import post_is_reblog
+from tumblr_utils.util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LockedQueue, LogLevel, MultiCondition, copyfile,
+                               enospc, fdatasync, fsync, have_module, is_dns_working, make_requests_session, no_internet, opendir,
+                               to_bytes)
+from tumblr_utils.wget import HTTPError, HTTP_TIMEOUT, Retry, WGError, WgetRetrieveWrapper, setup_wget, touch, urlopen
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
@@ -1840,7 +1840,7 @@ class TumblrPost:
                     notes_html = ''.join([n.prettify() for n in notes.find_all('li')])
 
         if options.save_notes and self.backup_account not in disable_note_scraper and not notes_html.strip():
-            import note_scraper
+            from tumblr_utils import note_scraper
 
             # Scrape and save notes
             while True:
