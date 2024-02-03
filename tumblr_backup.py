@@ -2061,7 +2061,7 @@ class ThreadPool:
                     break
                 work = self.queue.get(block=False)
                 qsize = self.queue.qsize()
-                if self.quit_flag and qsize % REM_POST_INC == 0:
+                if self.quit_flag and qsize % consts.REM_POST_INC == 0:
                     self._print_remaining(qsize)
 
             try:
