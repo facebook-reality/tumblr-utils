@@ -32,6 +32,7 @@ from typing import (TYPE_CHECKING, Any, Callable, DefaultDict, Dict, Iterable, I
 from urllib.parse import quote, urlencode, urlparse
 from xml.sax.saxutils import escape
 
+from tumblr_utils import consts
 from util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LockedQueue, LogLevel, MultiCondition, copyfile,
                   enospc, fdatasync, fsync, have_module, is_dns_working, make_requests_session, no_internet, opendir,
                   to_bytes)
@@ -111,21 +112,6 @@ else:
 # Imported later if needed
 ytdl_module: Optional[ModuleType] = None
 
-# Format of displayed tags
-TAG_FMT = '#{}'
-
-# Format of tag link URLs; set to None to suppress the links.
-# Named placeholders that will be replaced: domain, tag
-TAGLINK_FMT = 'https://{domain}/tagged/{tag}'
-
-# exit codes
-EXIT_SUCCESS    = 0
-EXIT_FAILURE    = 1
-# EXIT_ARGPARSE = 2 -- returned by argparse
-EXIT_INTERRUPT  = 3
-EXIT_ERRORS     = 4
-EXIT_NOPOSTS    = 5
-
 # variable directory names, will be set in TumblrBackup.backup()
 save_folder = ''
 media_folder = ''
@@ -133,27 +119,12 @@ media_folder = ''
 # constant names
 root_folder = os.getcwd()
 post_dir = 'posts'
-json_dir = 'json'
 media_dir = 'media'
-archive_dir = 'archive'
-theme_dir = 'theme'
 save_dir = '..'
-backup_css = 'backup.css'
-custom_css = 'custom.css'
-avatar_base = 'avatar'
-dir_index = 'index.html'
-tag_index_dir = 'tags'
 
 blog_name = ''
 post_ext = '.html'
 have_custom_css = False
-
-POST_TYPES = ('text', 'quote', 'link', 'answer', 'video', 'audio', 'photo', 'chat')
-TYPE_ANY = 'any'
-TAG_ANY = '__all__'
-
-MAX_POSTS = 50
-REM_POST_INC = 10
 
 # Always retry on 503 or 504, but never on connect or 429, the latter handled specially
 HTTP_RETRY = Retry(3, connect=False, status_forcelist=frozenset((503, 504)))
@@ -167,7 +138,6 @@ try:
     locale.setlocale(locale.LC_TIME, '')
 except locale.Error:
     pass
-FILE_ENCODING = 'utf-8'
 
 PREV_MUST_MATCH_OPTIONS = ('likes', 'blosxom')
 MEDIA_PATH_OPTIONS = ('dirs', 'hostdirs', 'image_names')
@@ -308,7 +278,7 @@ class open_outfile:
 @contextlib.contextmanager
 def open_text(*parts, mode='w') -> Iterator[TextIO]:
     assert 'b' not in mode
-    with open_outfile(mode, *parts, encoding=FILE_ENCODING, errors='xmlcharrefreplace') as f:
+    with open_outfile(mode, *parts, encoding=consts.FILE_ENCODING, errors='xmlcharrefreplace') as f:
         yield f
 
 
@@ -385,7 +355,7 @@ class ApiParser:
             return True
 
         def read_resp(path):
-            with open(path, encoding=FILE_ENCODING) as jf:
+            with open(path, encoding=consts.FILE_ENCODING) as jf:
                 return json.load(jf)
 
         if options.likes:
@@ -418,7 +388,7 @@ class ApiParser:
     def _iter_prev(self) -> Iterator[JSONDict]:
         assert self.prev_resps is not None
         for path in self.prev_resps:
-            with open(path, encoding=FILE_ENCODING) as f:
+            with open(path, encoding=consts.FILE_ENCODING) as f:
                 try:
                     yield json.load(f)
                 except ValueError as e:
@@ -464,7 +434,7 @@ class ApiParser:
                     )
                 else:
                     assert self._last_mode in (None, 'offset')
-                    assert start == (0 if self._last_offset is None else self._last_offset + MAX_POSTS)
+                    assert start == (0 if self._last_offset is None else self._last_offset + consts.MAX_POSTS)
                     self._last_mode = 'offset'
                     self._last_offset = start
                 posts = list(itertools.islice(it, None, count))
@@ -634,7 +604,7 @@ def add_exif(image_name, tags):
 
 
 def save_style():
-    with open_text(backup_css) as css:
+    with open_text(consts.BACKUP_CSS_FILENAME) as css:
         css.write('''\
 @import url("override.css");
 
@@ -666,21 +636,21 @@ def find_post_files():
         yield from find_files(path, lambda n: n.endswith(post_ext))
         return
 
-    indexes = (join(e, dir_index) for e in find_files(path))
+    indexes = (join(e, consts.DIR_INDEX_FILENAME) for e in find_files(path))
     yield from filter(os.path.exists, indexes)
 
 
 def match_avatar(name):
-    return name.startswith(avatar_base + '.')
+    return name.startswith(consts.AVATAR_BASE + '.')
 
 
 def get_avatar(prev_archive):
     if prev_archive is not None:
         # Copy old avatar, if present
-        avatar_matches = find_files(join(prev_archive, theme_dir), match_avatar)
+        avatar_matches = find_files(join(prev_archive, consts.THEME_DIR), match_avatar)
         src = next(avatar_matches, None)
         if src is not None:
-            path_parts = (theme_dir, split(src)[-1])
+            path_parts = (consts.THEME_DIR, split(src)[-1])
             cpy_res = maybe_copy_media(prev_archive, path_parts)
             if cpy_res:
                 return  # We got the avatar
@@ -688,10 +658,10 @@ def get_avatar(prev_archive):
         return  # Don't download the avatar
 
     url = 'https://api.tumblr.com/v2/blog/%s/avatar' % blog_name
-    avatar_dest = avatar_fpath = open_file(lambda f: f, (theme_dir, avatar_base))
+    avatar_dest = avatar_fpath = open_file(lambda f: f, (consts.THEME_DIR, consts.AVATAR_BASE))
 
     # Remove old avatars
-    avatar_matches = find_files(theme_dir, match_avatar)
+    avatar_matches = find_files(consts.THEME_DIR, match_avatar)
     if next(avatar_matches, None) is not None:
         return  # Do not clobber
 
@@ -716,7 +686,7 @@ def get_style(prev_archive):
     See https://groups.google.com/d/msg/tumblr-api/f-rRH6gOb6w/sAXZIeYx5AUJ"""
     if prev_archive is not None:
         # Copy old style, if present
-        path_parts = (theme_dir, 'style.css')
+        path_parts = (consts.THEME_DIR, 'style.css')
         cpy_res = maybe_copy_media(prev_archive, path_parts)
         if cpy_res:
             return  # We got the style
@@ -735,7 +705,7 @@ def get_style(prev_archive):
         if '\n' not in css:
             continue
         css = css.replace('\r', '').replace('\n    ', '\n')
-        with open_text(theme_dir, 'style.css') as f:
+        with open_text(consts.THEME_DIR, 'style.css') as f:
             f.write(css + '\n')
         return
 
@@ -820,11 +790,11 @@ class Index:
         )
         subtitle = self.blog.title if title else self.blog.subtitle
         title = title or self.blog.title
-        with open_text(index_dir, dir_index) as idx:
+        with open_text(index_dir, consts.DIR_INDEX_FILENAME) as idx:
             idx.write(self.blog.header(title, self.body_class, subtitle, avatar=True))
             if options.tag_index and self.body_class == 'index':
                 idx.write('<p><a href={}>Tag index</a></p>\n'.format(
-                    urlpathjoin(tag_index_dir, dir_index)
+                    urlpathjoin(consts.TAG_INDEX_DIR, consts.DIR_INDEX_FILENAME)
                 ))
             for year in sorted(self.index.keys(), reverse=options.reverse_index):
                 self.save_year(idx, archives, index_dir, year)
@@ -838,7 +808,7 @@ class Index:
             tm = time.localtime(time.mktime((year, month, 3, 0, 0, 0, 0, 0, -1)))
             month_name = self.save_month(archives, index_dir, year, month, tm)
             idx.write('    <li><a href={} title="{} post(s)">{}</a></li>\n'.format(
-                urlpathjoin(archive_dir, month_name), len(self.index[year][month]), strftime('%B', tm)
+                urlpathjoin(consts.ARCHIVE_DIR, month_name), len(self.index[year][month]), strftime('%B', tm)
             ))
         idx.write('</ul>\n\n')
 
@@ -869,11 +839,11 @@ class Index:
             suffix = '/' if options.dirs else post_ext
             file_name = FILE_FMT % (year, month, page, suffix)
             if options.dirs:
-                base = urlpathjoin(save_dir, archive_dir)
-                arch = open_text(index_dir, archive_dir, file_name, dir_index)
+                base = urlpathjoin(save_dir, consts.ARCHIVE_DIR)
+                arch = open_text(index_dir, consts.ARCHIVE_DIR, file_name, consts.DIR_INDEX_FILENAME)
             else:
                 base = ''
-                arch = open_text(index_dir, archive_dir, file_name)
+                arch = open_text(index_dir, consts.ARCHIVE_DIR, file_name)
 
             if page > 1:
                 pp = FILE_FMT % (year, month, page - 1, suffix)
@@ -927,18 +897,18 @@ class Indices:
     def save_tag_index(self):
         global save_dir
         save_dir = '../../..'
-        mkdir(path_to(tag_index_dir))
+        mkdir(path_to(consts.TAG_INDEX_DIR))
         tag_index = [self.blog.header('Tag index', 'tag-index', self.blog.title, avatar=True), '<ul>']
         for tag, index in sorted(self.tags.items(), key=lambda kv: kv[1].name):
             digest = hashlib.md5(to_bytes(tag)).hexdigest()
-            index.save_index(tag_index_dir + os.sep + digest,
+            index.save_index(consts.TAG_INDEX_DIR + os.sep + digest,
                 "Tag ‛%s’" % index.name
             )
             tag_index.append('    <li><a href={}>{}</a></li>'.format(
-                urlpathjoin(digest, dir_index), escape(index.name)
+                urlpathjoin(digest, consts.DIR_INDEX_FILENAME), escape(index.name)
             ))
         tag_index.extend(['</ul>', ''])
-        with open_text(tag_index_dir, dir_index) as f:
+        with open_text(consts.TAG_INDEX_DIR, consts.DIR_INDEX_FILENAME) as f:
             f.write('\n'.join(tag_index))
 
 
@@ -958,16 +928,16 @@ class TumblrBackup:
 
     def exit_code(self):
         if self.failed_blogs or self.postfail_blogs:
-            return EXIT_ERRORS
+            return consts.EXIT_ERRORS
         if self.total_count == 0 and not options.json_info:
-            return EXIT_NOPOSTS
-        return EXIT_SUCCESS
+            return consts.EXIT_NOPOSTS
+        return consts.EXIT_SUCCESS
 
     def header(self, title='', body_class='', subtitle='', avatar=False):
         root_rel = {
             'index': '', 'tag-index': '..', 'tag-archive': '../..'
         }.get(body_class, save_dir)
-        css_rel = urlpathjoin(root_rel, custom_css if have_custom_css else backup_css)
+        css_rel = urlpathjoin(root_rel, consts.CUSTOM_CSS_FILENAME if have_custom_css else consts.BACKUP_CSS_FILENAME)
         if body_class:
             body_class = ' class=' + body_class
         h = '''<!DOCTYPE html>
@@ -979,12 +949,12 @@ class TumblrBackup:
 <body%s>
 
 <header>
-''' % (FILE_ENCODING, self.title, css_rel, body_class)
+''' % (consts.FILE_ENCODING, self.title, css_rel, body_class)
         if avatar:
-            avatar_matches = find_files(path_to(theme_dir), match_avatar)
+            avatar_matches = find_files(path_to(consts.THEME_DIR), match_avatar)
             avatar_path = next(avatar_matches, None)
             if avatar_path is not None:
-                h += '<img src={} alt=Avatar>\n'.format(urlpathjoin(root_rel, theme_dir, split(avatar_path)[1]))
+                h += '<img src={} alt=Avatar>\n'.format(urlpathjoin(root_rel, consts.THEME_DIR, split(avatar_path)[1]))
         if title:
             h += '<h1>%s</h1>\n' % title
         if subtitle:
@@ -995,7 +965,7 @@ class TumblrBackup:
     @staticmethod
     def footer(base, previous_page, next_page):
         f = '<footer><nav>'
-        f += '<a href={} rel=index>Index</a>\n'.format(urlpathjoin(save_dir, dir_index))
+        f += '<a href={} rel=index>Index</a>\n'.format(urlpathjoin(save_dir, consts.DIR_INDEX_FILENAME))
         if previous_page:
             f += '| <a href={} rel=prev>Previous</a>\n'.format(urlpathjoin(base, previous_page))
         if next_page:
@@ -1010,7 +980,7 @@ class TumblrBackup:
         else:
             BeautifulSoup = BeautifulSoup_
 
-        with open(post, encoding=FILE_ENCODING) as pf:
+        with open(post, encoding=consts.FILE_ENCODING) as pf:
             soup = BeautifulSoup(pf, 'lxml')
         postdate = cast(Tag, soup.find('time'))['datetime']
         # datetime.fromisoformat does not understand 'Z' suffix
@@ -1020,7 +990,7 @@ class TumblrBackup:
     def process_existing_backup(cls, account, prev_archive):
         complete_backup = os.path.exists(path_to('.complete'))
         try:
-            with open(path_to('.first_run_options'), encoding=FILE_ENCODING) as f:
+            with open(path_to('.first_run_options'), encoding=consts.FILE_ENCODING) as f:
                 first_run_options = json.load(f)
         except FileNotFoundError:
             first_run_options = None
@@ -1068,7 +1038,7 @@ class TumblrBackup:
         pa_options = None
         if prev_archive is not None:
             try:
-                with open(join(prev_archive, '.first_run_options'), encoding=FILE_ENCODING) as f:
+                with open(join(prev_archive, '.first_run_options'), encoding=consts.FILE_ENCODING) as f:
                     pa_options = json.load(f)
             except FileNotFoundError:
                 pa_options = None
@@ -1153,7 +1123,7 @@ class TumblrBackup:
                 post_ext = ''
                 save_dir = '../..'
             post_class = TumblrPost
-            have_custom_css = os.access(path_to(custom_css), os.R_OK)
+            have_custom_css = os.access(path_to(consts.CUSTOM_CSS_FILENAME), os.R_OK)
 
         self.post_count = 0
         self.filter_skipped = 0
@@ -1308,7 +1278,7 @@ class TumblrBackup:
                     if post.typ not in request_sets:
                         continue
                     tags = request_sets[post.typ]
-                    if not (TAG_ANY in tags or tags & {t.lower() for t in post.tags}):
+                    if not (consts.TAG_ANY in tags or tags & {t.lower() for t in post.tags}):
                         continue
                 if options.no_reblog and post_is_reblog(p):
                     continue
@@ -1364,7 +1334,7 @@ class TumblrBackup:
             while True:
                 # find the upper bound
                 logger.status('Getting {}posts {} to {}{}\r'.format(
-                    'liked ' if options.likes else '', i, i + MAX_POSTS - 1,
+                    'liked ' if options.likes else '', i, i + consts.MAX_POSTS - 1,
                     '' if count_estimate is None else ' (of {} expected)'.format(count_estimate),
                 ))
 
@@ -1377,7 +1347,7 @@ class TumblrBackup:
                         break
 
                 with multicond:
-                    api_thread.put(MAX_POSTS, i, before, next_ident)
+                    api_thread.put(consts.MAX_POSTS, i, before, next_ident)
 
                     while not api_thread.response.qsize():
                         no_internet.check(release=True)
@@ -1413,7 +1383,7 @@ class TumblrBackup:
                     before = oldest_date
 
                 if options.idents is None:
-                    i += MAX_POSTS
+                    i += consts.MAX_POSTS
                 else:
                     i += 1
 
@@ -1480,7 +1450,7 @@ class TumblrPost:
         self.reblogged_root = post.get('reblogged_root_url')
         self.source_title = post.get('source_title', '')
         self.source_url = post.get('source_url', '')
-        self.file_name = join(self.ident, dir_index) if options.dirs else self.ident + post_ext
+        self.file_name = join(self.ident, consts.DIR_INDEX_FILENAME) if options.dirs else self.ident + post_ext
         self.llink = self.ident if options.dirs else self.file_name
         self.media_dir = join(post_dir, self.ident) if options.dirs else media_dir
         self.media_url = urlpathjoin(save_dir, self.media_dir)
@@ -1940,19 +1910,19 @@ class TumblrPost:
 
     @staticmethod
     def tag_link(tag):
-        tag_disp = escape(TAG_FMT.format(tag))
-        if not TAGLINK_FMT:
+        tag_disp = escape(consts.TAG_FMT.format(tag))
+        if not consts.TAGLINK_FMT:
             return tag_disp + ' '
-        url = TAGLINK_FMT.format(domain=blog_name, tag=quote(to_bytes(tag)))
+        url = consts.TAGLINK_FMT.format(domain=blog_name, tag=quote(to_bytes(tag)))
         return '<a href=%s>%s</a>\n' % (url, tag_disp)
 
     def get_path(self):
-        return (post_dir, self.ident, dir_index) if options.dirs else (post_dir, self.file_name)
+        return (post_dir, self.ident, consts.DIR_INDEX_FILENAME) if options.dirs else (post_dir, self.file_name)
 
     def save_post(self):
         """saves this post locally"""
         if options.json and not options.reuse_json:
-            with open_text(json_dir, self.ident + '.json') as f:
+            with open_text(consts.JSON_DIR, self.ident + '.json') as f:
                 f.write(self.get_json_content())
         path_parts = self.get_path()
         try:
@@ -1995,7 +1965,7 @@ class LocalPost:
     def __init__(self, post_file):
         self.post_file = post_file
         if options.tag_index:
-            with open(post_file, encoding=FILE_ENCODING) as f:
+            with open(post_file, encoding=consts.FILE_ENCODING) as f:
                 post = f.read()
             # extract all URL-encoded tags
             self.tags: List[Tuple[str, str]] = []
@@ -2003,7 +1973,7 @@ class LocalPost:
             if footer_pos > 0:
                 self.tags = re.findall(r'<a.+?/tagged/(.+?)>#(.+?)</a>', post[footer_pos:])
         parts = post_file.split(os.sep)
-        if parts[-1] == dir_index:  # .../<post_id>/index.html
+        if parts[-1] == consts.DIR_INDEX_FILENAME:  # .../<post_id>/index.html
             self.file_name = join(*parts[-2:])
             self.ident = parts[-2]
         else:
@@ -2013,7 +1983,7 @@ class LocalPost:
         self.tm = time.localtime(self.date)
 
     def get_post(self, in_tag_index):
-        with open(self.post_file, encoding=FILE_ENCODING) as f:
+        with open(self.post_file, encoding=consts.FILE_ENCODING) as f:
             post = f.read()
         # remove header and footer
         lines = post.split('\n')
@@ -2149,11 +2119,11 @@ if __name__ == '__main__':
             for req in values.lower().split(','):
                 parts = req.strip().split(':')
                 typ = parts.pop(0)
-                if typ != TYPE_ANY and typ not in POST_TYPES:
+                if typ != consts.TYPE_ANY and typ not in consts.POST_TYPES:
                     parser.error("{}: invalid post type '{}'".format(option_string, typ))
-                for typ in POST_TYPES if typ == TYPE_ANY else (typ,):
+                for typ in consts.POST_TYPES if typ == consts.TYPE_ANY else (typ,):
                     if not parts:
-                        request[typ] = [TAG_ANY]
+                        request[typ] = [consts.TAG_ANY]
                         continue
                     if typ not in request:
                         request[typ] = []
@@ -2163,7 +2133,7 @@ if __name__ == '__main__':
     class TagsCallback(RequestCallback):
         def __call__(self, parser, namespace, values, option_string=None):
             super().__call__(
-                parser, namespace, TYPE_ANY + ':' + values.replace(',', ':'), option_string,
+                parser, namespace, consts.TYPE_ANY + ':' + values.replace(',', ':'), option_string,
             )
 
     class PeriodCallback(argparse.Action):
@@ -2232,12 +2202,12 @@ if __name__ == '__main__':
                         help='save posts matching the request TYPE:TAG:TAG:…,TYPE:TAG:…,…. '
                              'TYPE can be {} or {any}; TAGs can be omitted or a colon-separated list. '
                              'Example: -Q {any}:personal,quote,photo:me:self'
-                             .format(', '.join(POST_TYPES), any=TYPE_ANY))
+                             .format(', '.join(consts.POST_TYPES), any=consts.TYPE_ANY))
     parser.add_argument('-t', '--tags', action=TagsCallback, dest='request',
                         help='save only posts tagged TAGS (comma-separated values; case-insensitive)')
     parser.add_argument('-T', '--type', action=RequestCallback, dest='request',
                         help='save only posts of type TYPE (comma-separated values from {})'
-                             .format(', '.join(POST_TYPES)))
+                             .format(', '.join(consts.POST_TYPES)))
     parser.add_argument('-F', '--filter', help='save posts matching a jq filter (needs jq module)')
     reblog_group.add_argument('--no-reblog', action='store_true', help="don't save reblogged posts")
     reblog_group.add_argument('--only-reblog', action='store_true', help='save only reblogged posts')
@@ -2353,7 +2323,7 @@ https://www.tumblr.com/oauth/apps\n''')
             logger.backup_account = account
             tb.backup(account, options.prev_archives[i] if options.prev_archives else None)
     except KeyboardInterrupt:
-        sys.exit(EXIT_INTERRUPT)
+        sys.exit(consts.EXIT_INTERRUPT)
 
     if tb.failed_blogs:
         logger.warn('Failed to back up {}\n'.format(', '.join(tb.failed_blogs)))
