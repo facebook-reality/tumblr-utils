@@ -2108,6 +2108,10 @@ def main():
     config_dir = platformdirs.user_config_dir('tumblr-backup', roaming=True, ensure_exists=True)
     config_file = Path(config_dir) / 'config.json'
 
+    if not os.path.exists(config_file):
+        with open(config_file, 'w') as f:
+            f.write('{}')
+
     if '--set-api-key' in sys.argv[1:]:
         # special argument parsing
         opt, *args = sys.argv[1:]
@@ -2116,9 +2120,14 @@ def main():
             return 1
         api_key, = args
         with open(config_file, 'r+') as f:
-            cfg = json.load(f)
+            try:
+                cfg = json.load(f)
+            except json.JSONDecodeError:
+                print(f'JSON decode error in {config_file}. Please make sure your config is properly formatted', file=sys.stderr)
+                return 1
             cfg['oauth_consumer_key'] = api_key
             f.seek(0)
+            f.truncate()
             json.dump(cfg, f, indent=4)
         return 0
 
