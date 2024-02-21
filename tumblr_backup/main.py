@@ -1,7 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-# standard Python library imports
+# builtin modules
+import argparse
 import calendar
 import contextlib
 import errno
@@ -19,25 +17,31 @@ import sys
 import threading
 import time
 import traceback
-import warnings
 from collections import defaultdict
 from datetime import datetime, timedelta
 from multiprocessing.queues import SimpleQueue
 from os.path import join, split, splitext
+from pathlib import Path
 from posixpath import basename as urlbasename, join as urlpathjoin, splitext as urlsplitext
 from tempfile import NamedTemporaryFile
 from types import ModuleType
-from typing import (TYPE_CHECKING, Any, Callable, DefaultDict, Dict, Iterable, Iterator, List, Optional, Set, TextIO,
-                    Tuple, Type, Union, cast)
+from typing import (TYPE_CHECKING, Any, Callable, ContextManager, DefaultDict, Dict, Iterable, Iterator, List, Optional,
+                    Set, TextIO, Tuple, Type, Union, cast)
 from urllib.parse import quote, urlencode, urlparse
 from xml.sax.saxutils import escape
 
-from tumblr_utils import consts
-from util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LockedQueue, LogLevel, MultiCondition, copyfile,
-                  enospc, fdatasync, fsync, have_module, is_dns_working, make_requests_session, no_internet, opendir,
-                  to_bytes)
-from wget import HTTPError, HTTP_TIMEOUT, Retry, WGError, WgetRetrieveWrapper, setup_wget, touch, urlopen
-from is_reblog import post_is_reblog
+# third-party modules
+import filetype
+import platformdirs
+import requests
+
+# internal modules
+from . import consts
+from .util import (AsyncCallable, ConnectionFile, FakeGenericMeta, LockedQueue, LogLevel, MultiCondition, copyfile,
+                   enospc, fdatasync, fsync, have_module, is_dns_working, make_requests_session, no_internet, opendir,
+                   to_bytes)
+from .wget import HTTPError, HTTP_TIMEOUT, Retry, WGError, WgetRetrieveWrapper, setup_wget, touch, urlopen
+from .is_reblog import post_is_reblog
 
 if TYPE_CHECKING:
     from typing_extensions import Literal
@@ -48,11 +52,6 @@ else:
     Tag = None
 
 JSONDict = Dict[str, Any]
-
-try:
-    from settings import DEFAULT_BLOGS
-except ImportError:
-    DEFAULT_BLOGS = []
 
 # extra optional packages
 try:
@@ -66,48 +65,6 @@ try:
 except ImportError:
     if not TYPE_CHECKING:
         jq = None
-
-# NB: setup_urllib3_ssl has already been called by wget
-
-try:
-    import requests
-except ImportError:
-    if not TYPE_CHECKING:
-        # Import pip._internal.download first to avoid a potential recursive import
-        try:
-            from pip._internal import download as _  # noqa: F401
-        except ImportError:
-            pass  # doesn't exist in pip 20.0+
-        try:
-            from pip._vendor import requests
-        except ImportError:
-            raise RuntimeError('The requests module is required. Please install it with pip or your package manager.')
-
-try:
-    import filetype
-except ImportError:
-    with warnings.catch_warnings(record=True) as catcher:
-        import imghdr
-        if any(w.category is DeprecationWarning for w in catcher):
-            print('warning: filetype module not found, using deprecated imghdr', file=sys.stderr)
-
-    # add another JPEG recognizer
-    # see http://www.garykessler.net/library/file_sigs.html
-    def test_jpg(h, f):
-        if h[:3] == b'\xFF\xD8\xFF' and h[3] in b'\xDB\xE0\xE1\xE2\xE3':
-            return 'jpeg'
-
-    imghdr.tests.append(test_jpg)
-
-    def guess_extension(f):
-        ext = imghdr.what(f)
-        if ext == 'jpeg':
-            ext = 'jpg'
-        return ext
-else:
-    def guess_extension(f):
-        kind = filetype.guess(f)
-        return kind.extension if kind else None
 
 # Imported later if needed
 ytdl_module: Optional[ModuleType] = None
@@ -130,9 +87,6 @@ have_custom_css = False
 HTTP_RETRY = Retry(3, connect=False, status_forcelist=frozenset((503, 504)))
 HTTP_RETRY.RETRY_AFTER_STATUS_CODES = frozenset((413,))  # type: ignore[misc]
 
-# get your own API key at https://www.tumblr.com/oauth/apps
-API_KEY = ''
-
 # ensure the right date/time format
 try:
     locale.setlocale(locale.LC_TIME, '')
@@ -148,6 +102,10 @@ BACKUP_CHANGING_OPTIONS = (
     'use_server_timestamps', 'user_agent', 'no_get', 'internet_archive', 'media_list', 'idents',
 )
 
+parser: argparse.ArgumentParser
+options: argparse.Namespace
+orig_options: Dict[str, Any]
+API_KEY: str
 wget_retrieve: Optional[WgetRetrieveWrapper] = None
 main_thread_lock = threading.RLock()
 multicond = MultiCondition(main_thread_lock)
@@ -328,6 +286,10 @@ def parse_period_date(period):
     return [p_start, p_stop]
 
 
+def get_posts_key() -> str:
+    return 'liked_posts' if options.likes else 'posts'
+
+
 class ApiParser:
     TRY_LIMIT = 2
     session: Optional[requests.Session] = None
@@ -401,7 +363,12 @@ class ApiParser:
                 first_post = next(self._iter_prev())
             except StopIteration:
                 return None
-            return {'posts': [first_post], 'blog': dict(first_post['blog'], posts=len(self.prev_resps))}
+            r = {get_posts_key(): [first_post], 'blog': first_post['blog'].copy()}
+            if options.likes:
+                r['liked_count'] = len(self.prev_resps)
+            else:
+                r['blog']['posts'] = len(self.prev_resps)
+            return r
 
         resp = self.apiparse(1)
         if self.dashboard_only_blog and resp and resp['posts']:
@@ -438,7 +405,7 @@ class ApiParser:
                     self._last_mode = 'offset'
                     self._last_offset = start
                 posts = list(itertools.islice(it, None, count))
-            return {'posts': posts}
+            return {get_posts_key(): posts}
 
         if self.dashboard_only_blog:
             base = 'https://www.tumblr.com/svc/indash_blog'
@@ -667,9 +634,9 @@ def get_avatar(prev_archive):
 
     def adj_bn(old_bn, f):
         # Give it an extension
-        image_type = guess_extension(f)
-        if image_type:
-            return avatar_fpath + '.' + image_type
+        kind = filetype.guess(f)
+        if kind:
+            return avatar_fpath + '.' + kind.extension
         return avatar_fpath
 
     # Download the image
@@ -1316,6 +1283,7 @@ class TumblrBackup:
             remaining_idents = options.idents.copy()
             count_estimate = len(remaining_idents)
 
+        mlf: Optional[ContextManager[TextIO]]
         if options.media_list:
             mlf = open_text('media.json', mode='r+')
             self.media_list_file = mlf.__enter__()
@@ -1370,7 +1338,7 @@ class TumblrBackup:
                 if not res:
                     break
 
-                if options.likes:
+                if options.likes and prev_archive is None:
                     next_ = resp['_links'].get('next')
                     if next_ is None:
                         logger.info('Backup complete: Found end of likes\n', account=True)
@@ -1840,7 +1808,7 @@ class TumblrPost:
                     notes_html = ''.join([n.prettify() for n in notes.find_all('li')])
 
         if options.save_notes and self.backup_account not in disable_note_scraper and not notes_html.strip():
-            import note_scraper
+            from . import note_scraper
 
             # Scrape and save notes
             while True:
@@ -2087,7 +2055,9 @@ class ThreadPool:
             logger.status('Waiting for worker threads to finish\r')
 
 
-if __name__ == '__main__':
+def main():
+    global parser, options, orig_options, API_KEY, wget_retrieve
+
     # The default of 'fork' can cause deadlocks, even on Linux
     # See https://bugs.python.org/issue40399
     if 'forkserver' in multiprocessing.get_all_start_methods():
@@ -2104,10 +2074,27 @@ if __name__ == '__main__':
     if hasattr(signal, 'SIGHUP'):
         signal.signal(signal.SIGHUP, handle_term_signal)
 
+
+    config_dir = platformdirs.user_config_dir('tumblr-backup', roaming=True, ensure_exists=True)
+    config_file = Path(config_dir) / 'config.json'
+
+    if '--set-api-key' in sys.argv[1:]:
+        # special argument parsing
+        opt, *args = sys.argv[1:]
+        if opt != '--set-api-key' or len(args) != 1:
+            print(f'{Path(sys.argv[0]).name}: invalid usage', file=sys.stderr)
+            return 1
+        api_key, = args
+        with open(config_file, 'r+') as f:
+            cfg = json.load(f)
+            cfg['oauth_consumer_key'] = api_key
+            f.seek(0)
+            json.dump(cfg, f, indent=4)
+        return 0
+
+
     no_internet.setup(main_thread_lock)
     enospc.setup(main_thread_lock)
-
-    import argparse
 
     class CSVCallback(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
@@ -2243,8 +2230,7 @@ if __name__ == '__main__':
                         help="Just print some info for each blog, don't make a backup")
     parser.add_argument('blogs', nargs='*')
     options = parser.parse_args()
-    blogs = options.blogs or DEFAULT_BLOGS
-    del options.blogs
+    blogs = options.blogs
 
     if not blogs:
         parser.error('Missing blog-name')
@@ -2307,11 +2293,18 @@ if __name__ == '__main__':
 
     check_optional_modules()
 
-    if not API_KEY:
-        sys.stderr.write('''\
-Missing API_KEY; please get your own API key at
-https://www.tumblr.com/oauth/apps\n''')
-        sys.exit(1)
+    try:
+        with open(config_file) as f:
+            API_KEY = json.load(f)['oauth_consumer_key']
+    except (FileNotFoundError, KeyError):
+        print(f"""\
+API key not set. To use tumblr-backup:
+1. Go to https://www.tumblr.com/oauth/apps and create an app if you don't have one already.
+2. Copy the "OAuth Consumer Key" from the app you created.
+3. Run `{Path(sys.argv[0]).name} --set-api-key API_KEY`, where API_KEY is the key that you just copied.""",
+            file=sys.stderr,
+        )
+        return 1
 
     wget_retrieve = WgetRetrieveWrapper(options, logger.log)
     setup_wget(not options.no_ssl_verify, options.user_agent)
@@ -2323,10 +2316,10 @@ https://www.tumblr.com/oauth/apps\n''')
             logger.backup_account = account
             tb.backup(account, options.prev_archives[i] if options.prev_archives else None)
     except KeyboardInterrupt:
-        sys.exit(consts.EXIT_INTERRUPT)
+        return consts.EXIT_INTERRUPT
 
     if tb.failed_blogs:
         logger.warn('Failed to back up {}\n'.format(', '.join(tb.failed_blogs)))
     if tb.postfail_blogs:
         logger.warn('One or more posts failed to save for {}\n'.format(', '.join(tb.postfail_blogs)))
-    sys.exit(tb.exit_code())
+    return tb.exit_code()

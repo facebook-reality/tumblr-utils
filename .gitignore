@@ -1,3 +1,5 @@
-/settings.py
+/*.egg-info
 /.*/
+/dist/
 *.pyc
+__pycache__/

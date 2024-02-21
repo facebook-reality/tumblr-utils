@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 # Credit to johanneszab for the C# implementation in TumblThree.
 # Credit to MrEldritch for the initial Python port.
 # Cleaned up and split off by Cebtenzzre.
@@ -16,21 +13,10 @@ import sys
 from getpass import getpass
 from http.cookiejar import MozillaCookieJar
 
-try:
-    import requests
-except ImportError:
-    # Import pip._internal.download first to avoid a potential recursive import
-    try:
-        from pip._internal import download as _  # type: ignore[attr-defined] # noqa: F401
-    except ImportError:
-        pass  # doesn't exist in pip 20.0+
-    try:
-        from pip._vendor import requests  # type: ignore[no-redef]
-    except ImportError:
-        raise RuntimeError('The requests module is required. Please install it with pip or your package manager.')
+import requests
 
 
-def get_api_token():
+def get_api_token(session):
     r = session.get('https://www.tumblr.com/login')
     if r.status_code != 200:
         raise ValueError('Response has non-200 status: HTTP {} {}'.format(r.status_code, r.reason))
@@ -42,7 +28,7 @@ def get_api_token():
 
 
 def tumblr_login(session, login, password):
-    api_token = get_api_token()
+    api_token = get_api_token(session)
 
     headers = {
         'Authorization': 'Bearer {}'.format(api_token),
@@ -61,7 +47,7 @@ def tumblr_login(session, login, password):
     # We now have the necessary cookies loaded into our session.
 
 
-if __name__ == '__main__':
+def main():
     cookiefile, = sys.argv[1:]
 
     print('Enter the credentials for your Tumblr account.')

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import collections
 import errno
 import os
@@ -16,38 +14,14 @@ from http.cookiejar import MozillaCookieJar
 from importlib.machinery import PathFinder
 from typing import TYPE_CHECKING, Any, Deque, Dict, Generic, Optional, Tuple, TypeVar
 
+from urllib3.exceptions import DependencyWarning
+
 if sys.platform == 'darwin':
     import fcntl
 
 if TYPE_CHECKING:
     import requests
     swt_base = requests.Session
-
-_PATH_IS_ON_VFAT_WORKS = True
-
-try:
-    import psutil
-except ImportError:
-    psutil = None  # type: ignore[assignment]
-    _PATH_IS_ON_VFAT_WORKS = False
-
-if os.name == 'nt':
-    try:
-        from nt import _getvolumepathname  # type: ignore[import]
-    except ImportError:
-        _getvolumepathname = None
-        _PATH_IS_ON_VFAT_WORKS = False
-
-try:
-    from urllib3.exceptions import DependencyWarning
-    URLLIB3_FROM_PIP = False
-except ImportError:
-    try:
-        # pip includes urllib3
-        from pip._vendor.urllib3.exceptions import DependencyWarning  # type: ignore[assignment]
-        URLLIB3_FROM_PIP = True
-    except ImportError:
-        raise RuntimeError('The urllib3 module is required. Please install it with pip or your package manager.')
 
 
 def to_bytes(string, encoding='utf-8', errors='strict'):
@@ -231,10 +205,7 @@ def setup_urllib3_ssl():
     # Inject SecureTransport on macOS if the linked OpenSSL is too old to handle TLSv1.2 or doesn't support SNI
     if sys.platform == 'darwin' and (ssl.OPENSSL_VERSION_NUMBER < 0x1000100F or not have_sni):
         try:
-            if URLLIB3_FROM_PIP:
-                from pip._vendor.urllib3.contrib import securetransport
-            else:
-                from urllib3.contrib import securetransport
+            from urllib3.contrib import securetransport
         except (ImportError, OSError) as e:
             print('Warning: Failed to inject SecureTransport: {!r}'.format(e), file=sys.stderr)
         else:
@@ -244,11 +215,8 @@ def setup_urllib3_ssl():
     # Inject PyOpenSSL if the linked OpenSSL has no SNI
     if not have_sni:
         try:
-            if URLLIB3_FROM_PIP:
-                from pip._vendor.urllib3.contrib import pyopenssl
-            else:
-                # TODO: remove attr-defined ignore once we support urllib3 2.x
-                from urllib3.contrib import pyopenssl  # type: ignore[attr-defined,no-redef]
+            # TODO: remove attr-defined ignore once we support urllib3 2.x
+            from urllib3.contrib import pyopenssl  # type: ignore[attr-defined,no-redef]
             pyopenssl.inject_into_urllib3()
         except ImportError as e:
             print('Warning: Failed to inject pyOpenSSL: {!r}'.format(e), file=sys.stderr)

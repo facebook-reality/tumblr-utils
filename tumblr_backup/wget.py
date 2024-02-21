@@ -1,36 +1,26 @@
-# -*- coding: utf-8 -*-
-
 import errno
 import functools
 import itertools
 import os
 import time
+import traceback
 import warnings
 from argparse import Namespace
 from collections import OrderedDict
 from email.utils import mktime_tz, parsedate_tz
 from enum import Enum
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Optional
+from typing import Any, BinaryIO, Callable, Optional
 from urllib.parse import urljoin, urlsplit
 
-from util import (URLLIB3_FROM_PIP, LogLevel, enospc, fsync, is_dns_working, no_internet, opendir, setup_urllib3_ssl,
-                  try_unlink)
+from urllib3 import HTTPConnectionPool, HTTPResponse, HTTPSConnectionPool, PoolManager, Timeout
+from urllib3 import Retry as Retry
+from urllib3._collections import HTTPHeaderDict
+from urllib3.exceptions import ConnectTimeoutError, InsecureRequestWarning, MaxRetryError, PoolError
+from urllib3.exceptions import HTTPError as HTTPError
+from urllib3.util import make_headers
 
-if TYPE_CHECKING or not URLLIB3_FROM_PIP:
-    from urllib3 import HTTPConnectionPool, HTTPResponse, HTTPSConnectionPool, PoolManager, Timeout
-    from urllib3 import Retry as Retry
-    from urllib3._collections import HTTPHeaderDict
-    from urllib3.exceptions import ConnectTimeoutError, InsecureRequestWarning, MaxRetryError, PoolError
-    from urllib3.exceptions import HTTPError as HTTPError
-    from urllib3.util import make_headers
-else:
-    from pip._vendor.urllib3 import HTTPConnectionPool, HTTPResponse, HTTPSConnectionPool, PoolManager, Timeout
-    from pip._vendor.urllib3 import Retry as Retry
-    from pip._vendor.urllib3._collections import HTTPHeaderDict
-    from pip._vendor.urllib3.exceptions import ConnectTimeoutError, InsecureRequestWarning, MaxRetryError, PoolError
-    from pip._vendor.urllib3.exceptions import HTTPError as HTTPError
-    from pip._vendor.urllib3.util import make_headers
+from .util import LogLevel, enospc, fsync, is_dns_working, no_internet, opendir, setup_urllib3_ssl, try_unlink
 
 setup_urllib3_ssl()
 
@@ -98,7 +88,7 @@ class WGHTTPResponse(HTTPResponse):
     # Make decoder public for saving and restoring the decoder state
     @property
     def decoder(self):
-        return self._decoder
+        return self._decoder  # pytype: disable=attribute-error
 
     @decoder.setter
     def decoder(self, value):
@@ -623,7 +613,7 @@ def _retrieve_loop(
     # THE loop
 
     using_internet_archive = False
-    ia_fallback_cause = None
+    ia_fallback_cause: Optional[WGWrongCodeError] = None
     orig_url = url
     orig_doctype = doctype
     retry_counter = RetryCounter(logger)
@@ -665,23 +655,16 @@ def _retrieve_loop(
                 and urlsplit(orig_url).netloc.endswith('.tumblr.com')  # type: ignore[arg-type]
             ):
                 using_internet_archive = True
-                ia_fallback_cause = (e.args[0], e.statcode, e.statmsg)
+                traceback.clear_frames(e.__traceback__)  # prevent reference cycle
+                ia_fallback_cause = e
                 url = 'https://web.archive.org/web/0/{}'.format(orig_url)  # type: ignore[assignment,str-bytes-safe]
                 doctype = orig_doctype
                 retry_counter.reset()
                 continue
             if using_internet_archive and hstat.statcode == 404:
                 # Not available at the Internet Archive, report the original error
-                assert options.internet_archive
                 assert ia_fallback_cause is not None
-                msg, statcode, statmsg = ia_fallback_cause
-                oe = Exception.__new__(WGWrongCodeError)
-                Exception.__init__(oe, msg)
-                oe.logger = logger
-                oe.url = orig_url
-                oe.statcode = statcode
-                oe.statmsg = statmsg
-                raise oe
+                raise ia_fallback_cause from None
             raise
         finally:
             if hstat.current_url is not None:
@@ -702,10 +685,11 @@ def _retrieve_loop(
         assert hstat.contlen in (None, hstat.bytes_read)
 
         if using_internet_archive:
-            assert options.internet_archive
             assert ia_fallback_cause is not None
-            _, statcode, statmsg = ia_fallback_cause
-            logger.info(orig_url, 'Downloaded from Internet Archive due to HTTP Error {} {}'.format(statcode, statmsg))
+            c = ia_fallback_cause
+            logger.info(
+                orig_url, 'Downloaded from Internet Archive due to HTTP Error {} {}'.format(c.statcode, c.statmsg),
+            )
 
         # Normal return path - we wrote a local file
         assert hstat.part_file is not None
